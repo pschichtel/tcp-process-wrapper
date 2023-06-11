@@ -219,6 +219,33 @@ data class Client(val socket: Socket, val outputChannel: ByteWriteChannel)
 
 val signals = Channel<Int>()
 
+fun CoroutineScope.outputBroadcaster(channel: ByteReadChannel, echoFd: Int, clients: Set<Client>) {
+    launch(Dispatchers.IO) {
+        newPinnedBuffer { buffer, pinnedBuffer ->
+            while (isActive) {
+                val bytesRead = channel.readAvailable(buffer, 0, buffer.size)
+                if (bytesRead == -1) {
+                    break
+                }
+                if (bytesRead > 0) {
+                    printBuffer(echoFd, pinnedBuffer, 0, bytesRead)
+
+                    if (clients.isNotEmpty()) {
+                        coroutineScope {
+                            for (client in clients) {
+                                launch(Dispatchers.IO) {
+                                    client.outputChannel.writeFully(buffer, 0, bytesRead)
+                                    client.outputChannel.flush()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 fun main(args: Array<String>) {
     if (args.isEmpty()) {
         errorln("Command is missing!")
@@ -255,32 +282,8 @@ fun main(args: Array<String>) {
 
         val clients = ConcurrentSet<Client>()
 
-        launch(Dispatchers.IO) {
-            newPinnedBuffer { buffer, pinnedBuffer ->
-                while (isActive) {
-                    val bytesRead = childProcess.stdout.readAvailable(buffer, 0, buffer.size)
-                    if (bytesRead == -1) {
-                        break
-                    }
-                    if (bytesRead > 0) {
-                        printBuffer(STDOUT_FILENO, pinnedBuffer, 0, bytesRead)
-
-                        if (clients.isNotEmpty()) {
-                            coroutineScope {
-                                for (client in clients) {
-                                    launch(Dispatchers.IO) {
-                                        client.outputChannel.writeFully(buffer, 0, bytesRead)
-                                        client.outputChannel.flush()
-                                        errorln("broadcasted to ${client.socket.remoteAddress}")
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            errorln("stdout broadcaster: ended")
-        }
+        outputBroadcaster(childProcess.stdout, STDOUT_FILENO, clients)
+        outputBroadcaster(childProcess.stderr, STDERR_FILENO, clients)
 
         launch(Dispatchers.IO) {
             while (isActive && !serverSocket.isClosed) {
@@ -309,10 +312,10 @@ fun main(args: Array<String>) {
                             }
                             val bytesRead = readChannel.readAvailable(buffer)
                             if (bytesRead > 0) {
+                                printBuffer(STDOUT_FILENO, pinnedBuffer, 0, bytesRead)
+
                                 childProcess.stdin.writeFully(buffer, 0, bytesRead)
                                 childProcess.stdin.flush()
-
-                                printBuffer(STDOUT_FILENO, pinnedBuffer, 0, bytesRead)
 
                                 val otherClients = clients.filter { it != client }
                                 if (otherClients.isNotEmpty()) {
