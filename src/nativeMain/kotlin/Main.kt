@@ -102,6 +102,14 @@ private fun printBuffer(buffer: Pinned<ByteArray>, offset: Int, length: Int): In
     return writeFully(STDOUT_FILENO, buffer, offset, length)
 }
 
+private fun newBuffer(): ByteArray = ByteArray(8192)
+
+private inline fun <R> newPinnedBuffer(f: (ByteArray, Pinned<ByteArray>) -> R): R {
+    return newBuffer().usePinned { pinned ->
+        f(pinned.get(), pinned)
+    }
+}
+
 private fun CoroutineScope.subProcess(cmdLine: Array<String>): Process {
     val stdinPipe = mkpipe()
     val stdoutPipe = mkpipe()
@@ -139,15 +147,14 @@ private fun CoroutineScope.subProcess(cmdLine: Array<String>): Process {
 
         fun CoroutineScope.forwardInput(channel: ByteReadChannel, pipe: Pipe) {
             launch(Dispatchers.IO) {
-                ByteArray(8192).usePinned { pinnedBuffer ->
-                    val actualBuffer = pinnedBuffer.get()
+                newPinnedBuffer { buffer, pinnedBuffer ->
                     while (isActive) {
-                        val bytesRead = channel.readAvailable(actualBuffer, 0, actualBuffer.size)
+                        val bytesRead = channel.readAvailable(buffer, 0, buffer.size)
                         if (bytesRead == -1) {
                             errorln("input channel closed")
                             break
                         }
-                        errorln("received data for child: ${actualBuffer.decodeToString(0, bytesRead)}")
+                        errorln("received data for child: ${buffer.decodeToString(0, bytesRead)}")
                         val bytesWritten = writeFully(pipe.writeEnd, pinnedBuffer, 0, bytesRead)
                         if (bytesWritten != bytesRead) {
                             errorln("Not all bytes have been written, expected $bytesRead, but wrote $bytesWritten")
@@ -232,8 +239,7 @@ fun main(args: Array<String>) {
         }
 
         launch(Dispatchers.IO) {
-            ByteArray(8192).usePinned { pinnedBuffer ->
-                val buffer = pinnedBuffer.get()
+            newPinnedBuffer { buffer, pinnedBuffer ->
                 while (isActive) {
                     val bytesRead = childProcess.stdout.readAvailable(buffer, 0, buffer.size)
                     if (bytesRead == -1) {
@@ -276,8 +282,7 @@ fun main(args: Array<String>) {
                     val client = Client(socket, writeChannel)
                     clients.add(client)
 
-                    ByteArray(8192).usePinned { pinnedBuffer ->
-                        val buffer = pinnedBuffer.get()
+                    newPinnedBuffer { buffer, pinnedBuffer ->
                         while (isActive) {
                             readChannel.awaitContent()
                             if (readChannel.isClosedForRead) {
