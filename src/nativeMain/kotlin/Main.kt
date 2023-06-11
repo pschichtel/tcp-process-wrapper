@@ -5,6 +5,7 @@ import io.ktor.utils.io.*
 import io.ktor.utils.io.errors.*
 import kotlinx.cinterop.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import platform.posix.*
 import kotlin.system.exitProcess
 
@@ -98,8 +99,8 @@ private fun writeFully(fd: Int, buffer: Pinned<ByteArray>, offset: Int, length: 
     return bytesWritten
 }
 
-private fun printBuffer(buffer: Pinned<ByteArray>, offset: Int, length: Int): Int {
-    return writeFully(STDOUT_FILENO, buffer, offset, length)
+private fun printBuffer(fd: Int, buffer: Pinned<ByteArray>, offset: Int, length: Int): Int {
+    return writeFully(fd, buffer, offset, length)
 }
 
 private fun newBuffer(): ByteArray = ByteArray(8192)
@@ -154,7 +155,6 @@ private fun CoroutineScope.subProcess(cmdLine: Array<String>): Process {
                             errorln("input channel closed")
                             break
                         }
-                        errorln("received data for child: ${buffer.decodeToString(0, bytesRead)}")
                         val bytesWritten = writeFully(pipe.writeEnd, pinnedBuffer, 0, bytesRead)
                         if (bytesWritten != bytesRead) {
                             errorln("Not all bytes have been written, expected $bytesRead, but wrote $bytesWritten")
@@ -206,7 +206,7 @@ private fun execSubprocess(cmdLine: Array<String>, stdin: Pipe, stdout: Pipe, st
             argv[i] = cmdLine[i].cstr.ptr
         }
         argv[cmdLine.size] = null
-        execv(cmdLine[0], argv)
+        execvp(cmdLine[0], argv)
     }
 
     if (status != 0) {
@@ -217,15 +217,29 @@ private fun execSubprocess(cmdLine: Array<String>, stdin: Pipe, stdout: Pipe, st
 
 data class Client(val socket: Socket, val outputChannel: ByteWriteChannel)
 
+val signals = Channel<Int>()
+
 fun main(args: Array<String>) {
     if (args.isEmpty()) {
         errorln("Command is missing!")
         exitProcess(1)
     }
-    val clients = ConcurrentSet<Client>()
+
+    val handleSignal = staticCFunction<Int, Unit> { signal: Int ->
+        errorln("Received signal $signal")
+        signals.trySend(signal)
+    }
+    signal(SIGINT, handleSignal)
 
     runBlocking {
         val childProcess = subProcess(args)
+
+        launch(Dispatchers.IO) {
+            for (signal in signals) {
+                errorln("Processing signal $signal")
+                kill(childProcess.pid, signal)
+            }
+        }
 
         val selectorManager = SelectorManager(Dispatchers.IO)
         val serverSocket = aSocket(selectorManager).tcp().bind("0.0.0.0", 8080) {
@@ -236,7 +250,10 @@ fun main(args: Array<String>) {
             val exitCode = childProcess.exitCode.await()
             errorln("Child process `${args.joinToString(" ")}` exited: $exitCode")
             selectorManager.cancel()
+            signals.close()
         }
+
+        val clients = ConcurrentSet<Client>()
 
         launch(Dispatchers.IO) {
             newPinnedBuffer { buffer, pinnedBuffer ->
@@ -246,7 +263,7 @@ fun main(args: Array<String>) {
                         break
                     }
                     if (bytesRead > 0) {
-                        printBuffer(pinnedBuffer, 0, bytesRead)
+                        printBuffer(STDOUT_FILENO, pinnedBuffer, 0, bytesRead)
 
                         if (clients.isNotEmpty()) {
                             coroutineScope {
@@ -295,7 +312,7 @@ fun main(args: Array<String>) {
                                 childProcess.stdin.writeFully(buffer, 0, bytesRead)
                                 childProcess.stdin.flush()
 
-                                printBuffer(pinnedBuffer, 0, bytesRead)
+                                printBuffer(STDOUT_FILENO, pinnedBuffer, 0, bytesRead)
 
                                 val otherClients = clients.filter { it != client }
                                 if (otherClients.isNotEmpty()) {
