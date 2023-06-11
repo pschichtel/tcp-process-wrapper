@@ -7,6 +7,7 @@ version = "1.0-SNAPSHOT"
 
 repositories {
     mavenCentral()
+    maven("https://maven.pkg.jetbrains.space/public/p/ktor/eap")
 }
 
 kotlin {
@@ -29,7 +30,7 @@ kotlin {
     sourceSets {
         val nativeMain by getting {
             dependencies {
-                val ktorVersion = "2.3.1"
+                val ktorVersion = "2.3.2-eap-692"
                 implementation("io.ktor:ktor-network:$ktorVersion")
                 val coroutinesVersion = "1.7.1"
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
