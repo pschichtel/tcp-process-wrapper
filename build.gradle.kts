@@ -24,6 +24,7 @@ kotlin {
         binaries {
             executable {
                 entryPoint = "main"
+                baseName = "tcp-wrapper"
             }
         }
     }
