@@ -2,7 +2,7 @@ plugins {
     kotlin("multiplatform") version "1.8.22"
 }
 
-group = "org.example"
+group = "tel.schich"
 version = "1.0-SNAPSHOT"
 
 repositories {
@@ -31,9 +31,9 @@ kotlin {
     sourceSets {
         val nativeMain by getting {
             dependencies {
-                val ktorVersion = "2.3.2-eap-692"
+                val ktorVersion = "2.3.2"
                 implementation("io.ktor:ktor-network:$ktorVersion")
-                val coroutinesVersion = "1.7.1"
+                val coroutinesVersion = "1.7.2"
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-debug:$coroutinesVersion")
             }
