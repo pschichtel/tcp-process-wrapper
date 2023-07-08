@@ -269,14 +269,9 @@ fun parseArguments(args: Array<String>): ParsedArgs {
 
     val index = args.indexOf("--")
 
-    val (wrapperArgs, processArgs) =
+    val (wrapperArgs, command) =
         if (index == -1) emptyArray<String>() to args
         else args.copyOfRange(fromIndex = 0, toIndex = index) to args.copyOfRange(fromIndex = index + 1, toIndex = args.size)
-
-    if (processArgs.isEmpty()) {
-        errorln("Command is missing!")
-        exitProcess(1)
-    }
 
     val argParser = ArgParser("tcp-process-wrapper")
     val input by argParser.option(ArgType.String, shortName = "i", description = "Initial input to sub process")
@@ -285,11 +280,16 @@ fun parseArguments(args: Array<String>): ParsedArgs {
 
     argParser.parse(wrapperArgs)
 
+    if (command.isEmpty()) {
+        errorln("Command is missing!")
+        exitProcess(1)
+    }
+
     return ParsedArgs(
         input,
         bindAddress = bindAddress ?: "0.0.0.0",
         bindPort = bindPort ?: 8080,
-        processArgs
+        command,
     )
 }
 
