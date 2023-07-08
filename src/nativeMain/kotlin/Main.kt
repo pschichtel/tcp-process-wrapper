@@ -3,8 +3,11 @@ import io.ktor.network.selector.SelectorManager
 import io.ktor.network.sockets.*
 import io.ktor.util.collections.ConcurrentSet
 import io.ktor.utils.io.*
+import io.ktor.utils.io.core.*
 import io.ktor.utils.io.errors.*
 import kotlinx.cinterop.*
+import kotlinx.cli.ArgParser
+import kotlinx.cli.ArgType
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import platform.posix.*
@@ -256,92 +259,139 @@ fun CoroutineScope.outputBroadcaster(channel: ByteReadChannel, echoFd: Int, clie
     }
 }
 
-@OptIn(ExperimentalForeignApi::class)
-fun main(args: Array<String>) {
-    if (args.isEmpty()) {
+class ParsedArgs(val initialInput: String?, val processArgs: Array<String>) {
+    override fun toString(): String {
+        return "ParsedArgs(initialInput=$initialInput, processArgs=Array(${processArgs.joinToString(", ")}))"
+    }
+}
+
+fun parseArguments(args: Array<String>): ParsedArgs {
+
+    val index = args.indexOf("--")
+
+    val (wrapperArgs, processArgs) =
+        if (index == -1) emptyArray<String>() to args
+        else args.copyOfRange(fromIndex = 0, toIndex = index) to args.copyOfRange(fromIndex = index + 1, toIndex = args.size)
+
+    if (processArgs.isEmpty()) {
         errorln("Command is missing!")
         exitProcess(1)
     }
+
+    val argParser = ArgParser("tcp-process-wrapper")
+    val input by argParser.option(ArgType.String, shortName = "i", description = "Initial input to sub process")
+
+    argParser.parse(wrapperArgs)
+
+    return ParsedArgs(input, processArgs)
+}
+
+@OptIn(ExperimentalForeignApi::class)
+suspend fun forwardPrintAndBroadcastData(
+    process: Process,
+    clients: Set<Client>,
+    originClient: Client?,
+    buffer: ByteArray,
+    pinnedBuffer: Pinned<ByteArray>,
+    length: Int,
+) {
+    if (length > 0) {
+        printBuffer(STDOUT_FILENO, pinnedBuffer, 0, length)
+
+        process.stdin.writeFully(buffer, 0, length)
+        process.stdin.flush()
+
+        val otherClients = clients.filter { it != originClient }
+        if (otherClients.isNotEmpty()) {
+            otherClients.map { otherClient ->
+                otherClient.socket.async {
+                    otherClient.outputChannel.writeFully(buffer, 0, length)
+                    otherClient.outputChannel.flush()
+                }
+            }.awaitAll()
+        }
+    }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+suspend fun actualMain(args: ParsedArgs): Unit = coroutineScope {
+    val childProcess = subProcess(args.processArgs)
+
+    launch(Dispatchers.IO) {
+        for (signal in signals) {
+            errorln("Processing signal $signal")
+            kill(childProcess.pid, signal)
+        }
+    }
+
+    val selectorManager = SelectorManager(Dispatchers.IO)
+    val serverSocket = aSocket(selectorManager).tcp().bind("0.0.0.0", 8080) {
+        reuseAddress = true
+    }
+
+    launch(Dispatchers.Default) {
+        val exitCode = childProcess.exitCode.await()
+        errorln("Child process `${args.processArgs.joinToString(" ")}` exited: $exitCode")
+        selectorManager.cancel()
+        signals.close()
+    }
+
+    val clients = ConcurrentSet<Client>()
+
+    outputBroadcaster(childProcess.stdout, STDOUT_FILENO, clients)
+    outputBroadcaster(childProcess.stderr, STDERR_FILENO, clients)
+
+    launch(Dispatchers.IO) {
+        while (isActive && !serverSocket.isClosed) {
+            errorln("Awaiting socket...")
+            val socket = try {
+                serverSocket.accept()
+            } catch (e: IOException) {
+                errorln(e.message ?: "Unknown error during accept")
+                break
+            }
+            errorln("Client connected: ${socket.remoteAddress}")
+
+            socket.launch {
+                val readChannel = socket.openReadChannel()
+                val writeChannel = socket.openWriteChannel(autoFlush = false)
+                val client = Client(socket, writeChannel)
+                clients.add(client)
+
+                newPinnedBuffer { buffer, pinnedBuffer ->
+                    while (isActive) {
+                        readChannel.awaitContent()
+                        if (readChannel.isClosedForRead) {
+                            errorln("Client disconnected: ${socket.remoteAddress}")
+                            clients.remove(client)
+                            break
+                        }
+                        val bytesRead = readChannel.readAvailable(buffer)
+                        forwardPrintAndBroadcastData(childProcess, clients, client, buffer, pinnedBuffer, bytesRead)
+                    }
+                }
+            }
+        }
+    }
+
+    args.initialInput?.let {
+        val bytes = it.toByteArray()
+        bytes.usePinned { pinnedBuffer ->
+            forwardPrintAndBroadcastData(childProcess, clients, null, bytes, pinnedBuffer, bytes.size)
+        }
+    }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+fun main(args: Array<String>) {
+    val parsedArgs = parseArguments(args)
 
     val handleSignal = staticCFunction<Int, Unit> { signal: Int ->
         errorln("Received signal $signal")
         signals.trySend(signal)
     }
     signal(SIGINT, handleSignal)
-
     runBlocking {
-        val childProcess = subProcess(args)
-
-        launch(Dispatchers.IO) {
-            for (signal in signals) {
-                errorln("Processing signal $signal")
-                kill(childProcess.pid, signal)
-            }
-        }
-
-        val selectorManager = SelectorManager(Dispatchers.IO)
-        val serverSocket = aSocket(selectorManager).tcp().bind("0.0.0.0", 8080) {
-            reuseAddress = true
-        }
-
-        launch(Dispatchers.Default) {
-            val exitCode = childProcess.exitCode.await()
-            errorln("Child process `${args.joinToString(" ")}` exited: $exitCode")
-            selectorManager.cancel()
-            signals.close()
-        }
-
-        val clients = ConcurrentSet<Client>()
-
-        outputBroadcaster(childProcess.stdout, STDOUT_FILENO, clients)
-        outputBroadcaster(childProcess.stderr, STDERR_FILENO, clients)
-
-        launch(Dispatchers.IO) {
-            while (isActive && !serverSocket.isClosed) {
-                errorln("Awaiting socket...")
-                val socket = try {
-                    serverSocket.accept()
-                } catch (e: IOException) {
-                    errorln(e.message ?: "Unknown error during accept")
-                    break
-                }
-                errorln("Client connected: ${socket.remoteAddress}")
-
-                socket.launch {
-                    val readChannel = socket.openReadChannel()
-                    val writeChannel = socket.openWriteChannel(autoFlush = false)
-                    val client = Client(socket, writeChannel)
-                    clients.add(client)
-
-                    newPinnedBuffer { buffer, pinnedBuffer ->
-                        while (isActive) {
-                            readChannel.awaitContent()
-                            if (readChannel.isClosedForRead) {
-                                errorln("Client disconnected: ${socket.remoteAddress}")
-                                clients.remove(client)
-                                break
-                            }
-                            val bytesRead = readChannel.readAvailable(buffer)
-                            if (bytesRead > 0) {
-                                printBuffer(STDOUT_FILENO, pinnedBuffer, 0, bytesRead)
-
-                                childProcess.stdin.writeFully(buffer, 0, bytesRead)
-                                childProcess.stdin.flush()
-
-                                val otherClients = clients.filter { it != client }
-                                if (otherClients.isNotEmpty()) {
-                                    otherClients.map { otherClient ->
-                                        otherClient.socket.async {
-                                            otherClient.outputChannel.writeFully(buffer, 0, bytesRead)
-                                            otherClient.outputChannel.flush()
-                                        }
-                                    }.awaitAll()
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        actualMain(parsedArgs)
     }
 }
