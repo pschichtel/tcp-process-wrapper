@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalForeignApi::class)
+
 import io.ktor.network.selector.SelectorManager
 import io.ktor.network.sockets.*
 import io.ktor.util.collections.ConcurrentSet
