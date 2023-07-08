@@ -274,7 +274,7 @@ fun parseArguments(args: Array<String>): ParsedArgs {
         else args.copyOfRange(fromIndex = 0, toIndex = index) to args.copyOfRange(fromIndex = index + 1, toIndex = args.size)
 
     val argParser = ArgParser("tcp-process-wrapper")
-    val input by argParser.option(ArgType.String, shortName = "i", description = "Initial input to sub process")
+    val input by argParser.option(ArgType.String, shortName = "i", description = "Initial input to the sub process")
     val bindAddress by argParser.option(ArgType.String, shortName = "a", description = "Bind address of the wrapper")
     val bindPort by argParser.option(ArgType.Int, shortName = "p", description = "Bind port of the wrapper")
 
