@@ -259,7 +259,7 @@ fun CoroutineScope.outputBroadcaster(channel: ByteReadChannel, echoFd: Int, clie
     }
 }
 
-class ParsedArgs(val initialInput: String?, val processArgs: Array<String>) {
+class ParsedArgs(val initialInput: String?, val bindAddress: String, val bindPort: Int, val processArgs: Array<String>) {
     override fun toString(): String {
         return "ParsedArgs(initialInput=$initialInput, processArgs=Array(${processArgs.joinToString(", ")}))"
     }
@@ -280,10 +280,17 @@ fun parseArguments(args: Array<String>): ParsedArgs {
 
     val argParser = ArgParser("tcp-process-wrapper")
     val input by argParser.option(ArgType.String, shortName = "i", description = "Initial input to sub process")
+    val bindAddress by argParser.option(ArgType.String, shortName = "a", description = "Bind address of the wrapper")
+    val bindPort by argParser.option(ArgType.Int, shortName = "p", description = "Bind port of the wrapper")
 
     argParser.parse(wrapperArgs)
 
-    return ParsedArgs(input, processArgs)
+    return ParsedArgs(
+        input,
+        bindAddress = bindAddress ?: "0.0.0.0",
+        bindPort = bindPort ?: 8080,
+        processArgs
+    )
 }
 
 @OptIn(ExperimentalForeignApi::class)
@@ -325,7 +332,7 @@ suspend fun actualMain(args: ParsedArgs): Unit = coroutineScope {
     }
 
     val selectorManager = SelectorManager(Dispatchers.IO)
-    val serverSocket = aSocket(selectorManager).tcp().bind("0.0.0.0", 8080) {
+    val serverSocket = aSocket(selectorManager).tcp().bind(args.bindAddress, args.bindPort) {
         reuseAddress = true
     }
 
