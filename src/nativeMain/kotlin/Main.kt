@@ -1,4 +1,3 @@
-@file:OptIn(ExperimentalForeignApi::class)
 
 import io.ktor.network.selector.SelectorManager
 import io.ktor.network.sockets.*
@@ -11,11 +10,13 @@ import kotlinx.coroutines.channels.Channel
 import platform.posix.*
 import kotlin.system.exitProcess
 
+@OptIn(ExperimentalForeignApi::class)
 private fun error(message: String): Nothing {
     val code = errno
     throw RuntimeException("$message: ${strerror(code)?.toKString()} ($code)")
 }
 
+@OptIn(ExperimentalForeignApi::class)
 private fun errorln(message: String) {
     if (fprintf(stderr, "$message\n") == -1) {
         error("Failed to fprintf to stderr")
@@ -44,6 +45,7 @@ data class Pipe(val readEnd: Int, val writeEnd: Int) {
     }
 }
 
+@OptIn(ExperimentalForeignApi::class)
 private fun mkpipe(): Pipe {
     val fds = IntArray(2)
     val status = fds.usePinned {
@@ -85,6 +87,7 @@ private fun redirectPipe(pipe: Pipe, stream: StdStream) {
 
 data class Process(val pid: Int, val stdin: ByteWriteChannel, val stdout: ByteReadChannel, val stderr: ByteReadChannel, val exitCode: Deferred<Int>)
 
+@OptIn(ExperimentalForeignApi::class)
 private fun writeFully(fd: Int, buffer: Pinned<ByteArray>, offset: Int, length: Int): Int {
     var bytesWritten = 0
     while (bytesWritten < length) {
@@ -101,18 +104,21 @@ private fun writeFully(fd: Int, buffer: Pinned<ByteArray>, offset: Int, length: 
     return bytesWritten
 }
 
+@OptIn(ExperimentalForeignApi::class)
 private fun printBuffer(fd: Int, buffer: Pinned<ByteArray>, offset: Int, length: Int): Int {
     return writeFully(fd, buffer, offset, length)
 }
 
 private fun newBuffer(): ByteArray = ByteArray(8192)
 
+@OptIn(ExperimentalForeignApi::class)
 private inline fun <R> newPinnedBuffer(f: (ByteArray, Pinned<ByteArray>) -> R): R {
     return newBuffer().usePinned { pinned ->
         f(pinned.get(), pinned)
     }
 }
 
+@OptIn(ExperimentalForeignApi::class)
 private fun CoroutineScope.subProcess(cmdLine: Array<String>): Process {
     val stdinPipe = mkpipe()
     val stdoutPipe = mkpipe()
@@ -197,6 +203,7 @@ private fun CoroutineScope.subProcess(cmdLine: Array<String>): Process {
     }
 }
 
+@OptIn(ExperimentalForeignApi::class)
 private fun execSubprocess(cmdLine: Array<String>, stdin: Pipe, stdout: Pipe, stderr: Pipe): Nothing {
     redirectPipe(stdin, StdStream.In)
     redirectPipe(stdout, StdStream.Out)
@@ -221,6 +228,7 @@ data class Client(val socket: Socket, val outputChannel: ByteWriteChannel)
 
 val signals = Channel<Int>()
 
+@OptIn(ExperimentalForeignApi::class)
 fun CoroutineScope.outputBroadcaster(channel: ByteReadChannel, echoFd: Int, clients: Set<Client>) {
     launch(Dispatchers.IO) {
         newPinnedBuffer { buffer, pinnedBuffer ->
@@ -248,6 +256,7 @@ fun CoroutineScope.outputBroadcaster(channel: ByteReadChannel, echoFd: Int, clie
     }
 }
 
+@OptIn(ExperimentalForeignApi::class)
 fun main(args: Array<String>) {
     if (args.isEmpty()) {
         errorln("Command is missing!")
