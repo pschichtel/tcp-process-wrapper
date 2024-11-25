@@ -33,7 +33,7 @@ kotlin {
             dependencies {
                 val ktorVersion = "2.3.2"
                 implementation("io.ktor:ktor-network:$ktorVersion")
-                val coroutinesVersion = "1.7.2"
+                val coroutinesVersion = "1.9.0"
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-debug:$coroutinesVersion")
 
