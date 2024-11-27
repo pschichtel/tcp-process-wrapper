@@ -31,7 +31,7 @@ kotlin {
     sourceSets {
         val nativeMain by getting {
             dependencies {
-                val ktorVersion = "2.3.2"
+                val ktorVersion = "3.1.0-eap-1168"
                 implementation("io.ktor:ktor-network:$ktorVersion")
                 val coroutinesVersion = "1.7.2"
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
