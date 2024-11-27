@@ -1,0 +1,14 @@
+[versions]
+kotlin = "2.1.0"
+ktor = "3.0.1"
+kotlinxCoroutines = "1.9.0"
+kotlinxCli = "0.3.6"
+
+[libraries]
+ktorNetwork = { module = "io.ktor:ktor-network", version.ref = "ktor" }
+kotlinxCoroutinesCore = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+kotlinxCoroutinesDebug = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-debug", version.ref = "kotlinxCoroutines" }
+kotlinxCli = { module = "org.jetbrains.kotlinx:kotlinx-cli", version.ref = "kotlinxCli" }
+
+[plugins]
+kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
