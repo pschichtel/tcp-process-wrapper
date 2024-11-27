@@ -1,5 +1,5 @@
 plugins {
-    kotlin("multiplatform") version "1.9.0"
+    kotlin("multiplatform") version "2.1.0"
 }
 
 group = "tel.schich"
@@ -31,13 +31,13 @@ kotlin {
     sourceSets {
         val nativeMain by getting {
             dependencies {
-                val ktorVersion = "2.3.2"
+                val ktorVersion = "3.0.1"
                 implementation("io.ktor:ktor-network:$ktorVersion")
-                val coroutinesVersion = "1.7.2"
+                val coroutinesVersion = "1.9.0"
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-debug:$coroutinesVersion")
 
-                implementation("org.jetbrains.kotlinx:kotlinx-cli:0.3.5")
+                implementation("org.jetbrains.kotlinx:kotlinx-cli:0.3.6")
             }
         }
     }
